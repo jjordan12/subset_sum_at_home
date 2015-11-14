@@ -11,6 +11,7 @@
 #include <sstream>
 #include <vector>
 #include <iomanip>
+#include <mpi.h>
 
 #include "stdint.h"
 
@@ -58,6 +59,8 @@ uint32_t *sums;                 //extern
 uint32_t *new_sums;             //extern
 
 
+
+
 /**
  *  Tests to see if a subset all passes the subset sum hypothesis
  */
@@ -65,9 +68,35 @@ static inline bool test_subset(const uint32_t *subset, const uint32_t subset_siz
     //this is also symmetric.  TODO: Only need to check from the largest element in the set (9) to the sum(S)/2 == (13), need to see if everything between 9 and 13 is a 1
     uint32_t M = subset[subset_size - 1];
     uint32_t max_subset_sum = 0;
+    uint32_t s5 = subset[4];
 
-    for (uint32_t i = 0; i < subset_size; i++) max_subset_sum += subset[i];
-    
+    for(an_id = 1; an_id < 5; an_id++) {
+       start_row = an_id*avg_rows_per_process + 1;
+       end_row   = (an_id + 1)*avg_rows_per_process;
+
+        if((num_rows - end_row) < avg_rows_per_process)
+          end_row = num_rows - 1;
+         num_rows_to_send = end_row - start_row + 1;
+
+        ierr = MPI_Send( &num_rows_to_send, 1 , MPI_INT,
+                 an_id, send_data_tag, MPI_COMM_WORLD);
+
+        ierr = MPI_Send( &array[start_row], num_rows_to_send, MPI_INT,
+                 an_id, send_data_tag, MPI_COMM_WORLD);
+    }
+
+
+    for(an_id = 1; an_id < 5; an_id++) {
+            
+        ierr = MPI_Recv( &partial_sum, 1, MPI_LONG, MPI_ANY_SOURCE,
+            return_data_tag, MPI_COMM_WORLD, &status);
+
+       sender = status.MPI_SOURCE;
+
+     
+       sum += partial_sum;
+    }
+
     for (uint32_t i = 0; i < max_sums_length; i++) {
         sums[i] = 0;
         new_sums[i] = 0;
@@ -305,6 +334,12 @@ int main(int argc, char** argv) {
 
     n_choose_k_init();      //Initialize the n choose k table
 
+    ierr = MPI_Init(2, 5);
+    root_process = 0;
+    uint32_t my_id,num_procs;
+    ierr = MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
+    ierr = MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+if (&my_id == 0){
     if (argc == 5) {
         doing_slice = true;
         starting_subset = parse_t<uint64_t>(argv[3]);
@@ -644,4 +679,28 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR Args, int WinMode
     return main(argc, argv);
 }
 #endif
+}else{
+         ierr = MPI_Recv( &num_rows_to_receive, 1, MPI_INT, 
+               root_process, send_data_tag, MPI_COMM_WORLD, &status);
 
+         uint32_t array2 = subset[num_rows_to_receive]
+
+         ierr = MPI_Recv( &array2, num_rows_to_receive, MPI_INT, 
+               root_process, send_data_tag, MPI_COMM_WORLD, &status);
+
+         num_rows_received = num_rows_to_receive;
+
+         /* Calculate the sum of my portion of the array */
+
+         uint32_t partial_sum = 0;
+         for(i = 0; i < num_rows_received; i++) {
+            partial_sum += array2[i];
+         }
+
+         /* and finally, send my partial sum to hte root process */
+
+         ierr = MPI_Send( &partial_sum, 1, MPI_LONG, root_process, 
+               return_data_tag, MPI_COMM_WORLD);
+
+}ierr = MPI_Finalize();
+}
