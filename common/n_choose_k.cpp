@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <iostream>
+#include <cmath>
 using std::cerr;
 using std::endl;
 
@@ -33,6 +34,10 @@ void n_choose_k_init() {
 }
 
 uint64_t n_choose_k(uint32_t n, uint32_t k) {
+	uint32_t pivot = ceil(n/2);
+	if (k>pivot){
+		k = n-k;
+	}
     return n_choose_k_lookup_table[n][k];
 }
 

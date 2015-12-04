@@ -491,7 +491,7 @@ int main(int argc, char** argv) {
 
 #ifdef VERBOSE
 #ifndef FALSE_ONLY
-        print_subset_calculation(starting_subset + iteration, subset, subset_size, success);
+        print_subset_calculation(output_target, starting_subset + iteration, subset, subset_size, success);
 #endif
 #endif
 
@@ -644,4 +644,3 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR Args, int WinMode
     return main(argc, argv);
 }
 #endif
-
