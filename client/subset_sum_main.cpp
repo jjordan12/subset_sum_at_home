@@ -58,6 +58,8 @@ unsigned long int max_sums_length;  //extern
 uint32_t *sums;                 //extern
 uint32_t *new_sums;             //extern
 
+int root_process = 0;
+int ierr;
 
 
 
@@ -415,9 +417,8 @@ int main(int argc, char** argv) {
 	/**
 	 * Initialize the multicore part of the program
 	 */
-	ierr = MPI_Init(2, 5);
-    root_process = 0;
-    uint32_t my_id,num_procs;
+	ierr = MPI_Init(&argc, &argv);
+    int my_id,num_procs;
     ierr = MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
     ierr = MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
     starting_subset = starting_subset + subsets_to_calculate/num_procs*my_id;
@@ -658,4 +659,4 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR Args, int WinMode
     return main(argc, argv);
 }
 #endif
-}
+
