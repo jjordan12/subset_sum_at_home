@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include <iostream>
+#include <cmath>
+#include <omp.h>
 using std::cerr;
 using std::endl;
 
@@ -13,16 +15,17 @@ using std::endl;
 uint64_t n_choose_k_lookup_table[68][35];
 
 void n_choose_k_init() {
+	#pragma omp parallel for schedule(dynamic,1)
     for (int i = 0; i < 68; i++) {
         for (int j = 0; j <= 34; j++) {
             n_choose_k_lookup_table[i][j] = 0;
         }
     }
-
+    
+    
     for (int i = 0; i < 68; i++) {
         n_choose_k_lookup_table[i][0] = 1;
         //cerr << n_choose_k_lookup_table[i][0];
-
         for (int j = 1; j <= i && j <= 34; j++) {
             n_choose_k_lookup_table[i][j] = n_choose_k_lookup_table[i-1][j] + n_choose_k_lookup_table[i-1][j-1];
 
@@ -33,6 +36,10 @@ void n_choose_k_init() {
 }
 
 uint64_t n_choose_k(uint32_t n, uint32_t k) {
+	uint32_t pivot = ceil(n/2);
+	if (k>pivot){
+		k = n-k;
+	}
     return n_choose_k_lookup_table[n][k];
 }
 

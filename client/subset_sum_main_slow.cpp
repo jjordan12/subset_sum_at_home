@@ -118,40 +118,6 @@ static inline bool test_subset(const uint32_t *subset, const uint32_t subset_siz
     return success;
 }
 
-bool isSubsetSum(uint32_t *set, uint32_t n, uint32_t sum)
-{
-   if (sum == 0)
-     return true;
-   if (n == 0 && sum != 0)
-     return false;
- 
-   if (set[n-1] > sum)
-     return isSubsetSum(set, n-1, sum);
- 
-   return isSubsetSum(set, n-1, sum) || isSubsetSum(set, n-1, sum-set[n-1]);
-}
-
-static inline bool test_subset2(uint32_t *subset, uint32_t subset_size){
-//TODO: Only need to check from the largest element in the set (9) to the sum(S)/2 == (13), need to see if everything between 9 and 13 is a 1
-	uint32_t max = 0;
-	for (uint32_t i = 0;i<subset_size;i++){
-		max += subset[i];
-	}
-	max = max >> 1;
-	uint32_t min = subset[subset_size-1];
-	if (min>max){
-		uint32_t tmp = min;
-		min = max;
-		max = tmp;
-	}
-	bool result = true;
-	for (uint32_t i = min; i<=max; i++){
-		result = isSubsetSum(subset,subset_size,i);
-		if (result == false) return false;
-	}
-	return result;
-}
-
 void write_checkpoint(string filename, const uint64_t iteration, const uint64_t pass, const uint64_t fail, const vector<uint64_t> *failed_sets, const uint32_t checksum) {
 #ifdef _BOINC_
     string output_path;
@@ -453,18 +419,11 @@ int main(int argc, char** argv) {
 	uint64_t expected_total = n_choose_k(max_set_value - 1, subset_size - 1);
 	uint32_t *subset;
 	
-	#pragma omp parallel default(shared) private(my_id,num_procs,subset) firstprivate(iteration,starting_subset,expected_total,doing_slice,max_set_value,subsets_to_calculate) // shared(failed_sets,max_sums_length,output_target,subset_size,pass,fail,started_from_checkpoint,starting_subset,expected_total,doing_slice,max_set_value)
+	#pragma omp parallel default(shared) private(my_id,num_procs,subset) firstprivate(iteration) // shared(failed_sets,max_sums_length,output_target,subset_size,pass,fail,started_from_checkpoint,starting_subset,expected_total,doing_slice,max_set_value)
 	{
 		subset = new uint32_t[subset_size];
 	    my_id = omp_get_thread_num();
 	    num_procs = omp_get_num_threads();
-	    if (!doing_slice){
-			subsets_to_calculate = (uint64_t)ceil((double)expected_total/(double)num_procs);
-		} else{
-			subsets_to_calculate = (uint64_t)ceil((double)subsets_to_calculate/(double)num_procs);
-		}
-		doing_slice = true;
-	    starting_subset = starting_subset + my_id * subsets_to_calculate;
 	
 	    
 	
@@ -489,7 +448,7 @@ int main(int argc, char** argv) {
 	#pragma omp master
 	{
 	    if (doing_slice) {
-	        *output_target << "performing " << subsets_to_calculate * num_procs << " set evaluations.";
+	        *output_target << "performing " << subsets_to_calculate << " set evaluations.";
 	    } else {
 	        *output_target << "performing " << expected_total << " set evaluations.";
 	    }
@@ -527,34 +486,36 @@ int main(int argc, char** argv) {
 		    new_sums = new uint32_t[max_sums_length];
 		
 		    bool success;
+		    
+		    for(int j = 0; j < my_id; j++){
+				generate_next_subset(subset, subset_size, max_set_value);
+				iteration++;
+			}
 		
 		    while (subset[0] <= (max_set_value - subset_size + 1)) {
 			//~ #pragma omp critical (debugstuff)
 			//~ {
 				//~ print_subset(output_target,subset,subset_size);
 			//~ }
-				#pragma omp critical (test)
-					{
-					success = test_subset(subset, subset_size);
+				success = test_subset(subset, subset_size);
+			#pragma omp critical (check)
+		        {
+					if (success) {
+						pass++;
+					} else {
+						fail++;
+						failed_sets->push_back(starting_subset + iteration);
 					}
-				#pragma omp critical (check)
-					{
-						if (success) {
-							pass++;
-						} else {
-							fail++;
-							failed_sets->push_back(starting_subset + iteration);
-						}
-						#pragma omp flush(failed_sets,pass,fail)
-			        }
+					#pragma omp flush(pass,fail)
+		        }
 		        //~ #pragma omp critical (moredebugstuff)
 		        //~ {
 		        //~ cerr << my_id << " Generating next subset" << endl;
 				//~ }
-				generate_next_subset(subset, subset_size, max_set_value);
-				iteration++;
-				
+				iteration += num_procs;
 		        if (doing_slice && iteration >= subsets_to_calculate) break;
+		        if (!doing_slice && iteration >= expected_total) break;
+				generate_ith_subset(starting_subset+iteration,subset, subset_size, max_set_value);
 		#pragma omp master
 		{
 		#ifdef VERBOSE
@@ -609,9 +570,7 @@ int main(int argc, char** argv) {
 		delete [] subset;
 	}
 	subset = new uint32_t[subset_size];
-#ifdef SORT
 	sort (failed_sets->begin(), failed_sets->end());
-#endif
 #ifdef _BOINC_
     *output_target << "<checksum>" << checksum << "</checksum>" << endl;
     *output_target << "<uint32_max>" << UINT32_MAX << "</uint32_max>" << endl;
