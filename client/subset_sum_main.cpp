@@ -66,8 +66,9 @@ int root_process = 0;
 /**
  *  Tests to see if a subset all passes the subset sum hypothesis
  */
-static inline bool test_subset(const uint32_t *subset, const uint32_t subset_size) {
+static inline bool test_subset(const uint32_t *subset, const uint32_t subset_size, uint32_t *sums, uint32_t *new_sums) {
     //this is also symmetric.  TODO: Only need to check from the largest element in the set (9) to the sum(S)/2 == (13), need to see if everything between 9 and 13 is a 1
+    
     uint32_t M = subset[subset_size - 1];
     uint32_t max_subset_sum = 0;
 
@@ -82,25 +83,32 @@ static inline bool test_subset(const uint32_t *subset, const uint32_t subset_siz
     uint32_t current;
     for (uint32_t i = 0; i < subset_size; i++) {
         current = subset[i];
-
-        shift_left(new_sums, max_sums_length, sums, current);                    // new_sums = sums << current;
-//        *output_target << "new_sums = sums << %2u    = ", current);
-//        print_bit_array(new_sums, sums_length);
-//        *output_target << "\n");
-
-        or_equal(sums, max_sums_length, new_sums);                               //sums |= new_sums;
-//        *output_target << "sums |= new_sums         = ");
-//        print_bit_array(sums, sums_length);
-//        *output_target << "\n");
-
-        or_single(sums, max_sums_length, current - 1);                           //sums |= 1 << (current - 1);
-//        *output_target << "sums != 1 << current - 1 = ");
-//        print_bit_array(sums, sums_length);
-//        *output_target << "\n");
-    }
-
-    bool success = all_ones(sums, max_sums_length, M, max_subset_sum - M);
-
+		//~ #pragma omp critical (shiftleft)
+		//~ {
+	        shift_left(new_sums, max_sums_length, sums, current);                    // new_sums = sums << current;
+	//        *output_target << "new_sums = sums << %2u    = ", current);
+	//        print_bit_array(new_sums, sums_length);
+	//        *output_target << "\n");
+		//~ }
+		//~ #pragma omp critical (orequal)
+		//~ {
+	        or_equal(sums, max_sums_length, new_sums);                               //sums |= new_sums;
+	//        *output_target << "sums |= new_sums         = ");
+	//        print_bit_array(sums, sums_length);
+	//        *output_target << "\n");
+		//~ }
+		//~ #pragma omp critical (orsingle)
+		//~ {
+	        or_single(sums, max_sums_length, current - 1);                           //sums |= 1 << (current - 1);
+	//        *output_target << "sums != 1 << current - 1 = ");
+	//        print_bit_array(sums, sums_length);
+	//        *output_target << "\n");
+		//~ }
+	}
+	bool success = true;
+	
+    success = all_ones(sums, max_sums_length, M, max_subset_sum - M);
+    
 #ifdef _BOINC_
     //Calculate a checksum for verification on BOINC
 //    for (uint32_t i = 0; i < max_sums_length; i++) checksum += sums[i];
@@ -118,7 +126,7 @@ static inline bool test_subset(const uint32_t *subset, const uint32_t subset_siz
     return success;
 }
 
-bool isSubsetSum(uint32_t *set, uint32_t n, uint32_t sum)
+inline bool isSubsetSum(uint32_t *set, uint32_t n, uint32_t sum)
 {
    if (sum == 0)
      return true;
@@ -134,9 +142,7 @@ bool isSubsetSum(uint32_t *set, uint32_t n, uint32_t sum)
 static inline bool test_subset2(uint32_t *subset, uint32_t subset_size){
 //TODO: Only need to check from the largest element in the set (9) to the sum(S)/2 == (13), need to see if everything between 9 and 13 is a 1
 	uint32_t max = 0;
-	for (uint32_t i = 0;i<subset_size;i++){
-		max += subset[i];
-	}
+	for (uint32_t i = 0;i<subset_size;i++) max += subset[i];
 	max = max >> 1;
 	uint32_t min = subset[subset_size-1];
 	if (min>max){
@@ -449,11 +455,11 @@ int main(int argc, char** argv) {
 	/**
 	 * Initialize the multicore part of the program
 	 */
-	int my_id,num_procs;
+	int my_id,num_procs,fast_id;
 	uint64_t expected_total = n_choose_k(max_set_value - 1, subset_size - 1);
 	uint32_t *subset;
 	
-	#pragma omp parallel default(shared) private(my_id,num_procs,subset) firstprivate(iteration,starting_subset,expected_total,doing_slice,max_set_value,subsets_to_calculate) // shared(failed_sets,max_sums_length,output_target,subset_size,pass,fail,started_from_checkpoint,starting_subset,expected_total,doing_slice,max_set_value)
+	#pragma omp parallel default(shared) private(my_id,num_procs,subset,new_sums,sums) firstprivate(iteration,starting_subset,expected_total,doing_slice,max_set_value,subsets_to_calculate) // shared(failed_sets,max_sums_length,output_target,subset_size,pass,fail,started_from_checkpoint,starting_subset,expected_total,doing_slice,max_set_value)
 	{
 		subset = new uint32_t[subset_size];
 	    my_id = omp_get_thread_num();
@@ -533,10 +539,12 @@ int main(int argc, char** argv) {
 			//~ {
 				//~ print_subset(output_target,subset,subset_size);
 			//~ }
-				#pragma omp critical (test)
-					{
-					success = test_subset(subset, subset_size);
-					}
+				//~ if (my_id == fast_id) success = test_subset(subset, subset_size);
+				//~ else success = test_subset2(subset,subset_size);
+				//~ #pragma omp critical (test)
+					//~ {
+						success = test_subset(subset, subset_size, sums, new_sums);
+					//~ }
 				#pragma omp critical (check)
 					{
 						if (success) {
@@ -591,7 +599,8 @@ int main(int argc, char** argv) {
 		
 		//                if (!success) cout << " fail: " << fail << ", failed_subsets.size(): " << failed_sets->size() << "\n";
 		//                else cout << endl;
-		
+						sort (failed_sets->begin(), failed_sets->end());
+						
 		                write_checkpoint(checkpoint_file, iteration, pass, fail, failed_sets, checksum);
 		#ifdef _BOINC_
 		                boinc_checkpoint_completed();
@@ -605,13 +614,13 @@ int main(int argc, char** argv) {
 		//~ {
 		//~ cerr << my_id << " Is Home Free" << endl;
 		//~ }
+		fast_id++;
+		#pragma omp flush(fast_id)
 		#pragma omp barrier
 		delete [] subset;
 	}
 	subset = new uint32_t[subset_size];
-#ifdef SORT
 	sort (failed_sets->begin(), failed_sets->end());
-#endif
 #ifdef _BOINC_
     *output_target << "<checksum>" << checksum << "</checksum>" << endl;
     *output_target << "<uint32_max>" << UINT32_MAX << "</uint32_max>" << endl;
